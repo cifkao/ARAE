@@ -630,5 +630,8 @@ for epoch in range(1, args.epochs+1):
                     f.write("\nEnding Training\n")
                 sys.exit()
 
+    if args.no_earlystopping:
+        save_model()
+
     # shuffle between epochs
     train_data = batchify(corpus.train, args.batch_size, shuffle=True)
