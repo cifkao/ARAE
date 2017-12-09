@@ -1,6 +1,7 @@
 import argparse
 import numpy as np
 import random
+import sys
 
 import torch
 from torch.autograd import Variable
@@ -46,7 +47,8 @@ def main(args):
     total_loss = 0
     ntokens = len(corpus.dictionary.word2idx)
     all_accuracies = 0
-    bcnt = 0
+    num_examples = 0
+    criterion_ce = torch.nn.CrossEntropyLoss(size_average=False)
     for i, batch in enumerate(test_data):
         source, target, lengths = batch
         source = Variable(source, volatile=True)
@@ -54,9 +56,27 @@ def main(args):
         #source = to_gpu(args.cuda, Variable(source, volatile=True))
         #target = to_gpu(args.cuda, Variable(target, volatile=True))
 
+        # Generate output.
+
         # output: batch x seq_len x ntokens
         hidden = autoencoder(source, lengths, noise=False, encode_only=True)
         max_indices = autoencoder.generate(hidden, model_args['maxlen'], sample=False)
+
+        # Decode in training mode to compute loss.
+
+        mask = target.gt(0)
+        masked_target = target.masked_select(mask)
+        # examples x ntokens
+        output_mask = mask.unsqueeze(1).expand(mask.size(0), ntokens)
+
+        # output: batch x seq_len x ntokens
+        output = autoencoder(source, lengths, noise=False)
+        flattened_output = output.view(-1, ntokens)
+
+        masked_output = \
+            flattened_output.masked_select(output_mask).view(-1, ntokens)
+        total_loss += criterion_ce(masked_output/model_args['temp'], masked_target).data
+        num_examples += source.size()[0]
 
         aeoutf = args.outf
         with open(aeoutf, "a") as f:
@@ -74,6 +94,9 @@ def main(args):
                 chars = " ".join([corpus.dictionary.idx2word[x] for x in idx[:length]])
                 f.write(chars)
                 f.write("\n")
+
+    print("Processed {} examples".format(num_examples))
+    print("Cross-entropy: {:.4f}".format((total_loss / num_examples)[0]))
 
 
 if __name__ == "__main__":
